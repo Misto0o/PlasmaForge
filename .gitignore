@@ -1,0 +1,29 @@
+# --- Python ---
+__pycache__/
+*.pyc
+.venv/
+venv/
+*.egg-info/
+build/
+dist/
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+
+# --- Cython build artifacts ---
+# Generated .c files and compiled extensions are build products, not
+# source — .pyx/.pxd are the source of truth and stay tracked.
+backend/plasmaforge/physics/*.c
+backend/plasmaforge/physics/*.so
+backend/plasmaforge/physics/*.pyd
+backend/plasmaforge/physics/*.html
+
+# --- Node / frontend ---
+node_modules/
+frontend/dist/
+frontend/.vite/
+
+# --- OS / editor ---
+.DS_Store
+.vscode/
+.idea/

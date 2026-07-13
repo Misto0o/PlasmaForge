@@ -1,0 +1,18 @@
+-r requirements.txt
+
+# Cython build toolchain — needed to compile physics/*.pyx locally.
+Cython>=3.0
+setuptools>=68
+wheel
+
+# Testing
+pytest>=8.0
+pytest-benchmark>=4.0
+
+# Formatting / linting
+black>=24.0
+ruff>=0.4
+
+# Profiling (see docs/development.md)
+py-spy>=0.3.14
+line-profiler>=4.1

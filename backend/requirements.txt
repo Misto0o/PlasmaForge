@@ -1,0 +1,9 @@
+# Runtime dependencies only. Build-time-only deps (Cython, setuptools)
+# live in requirements-dev.txt / pyproject.toml's build-system table —
+# a deployed server doesn't need the Cython compiler installed, only the
+# already-built .so files.
+
+numpy>=1.26,<2.0
+fastapi>=0.110
+uvicorn[standard]>=0.29
+websockets>=12.0

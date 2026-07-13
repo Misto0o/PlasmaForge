@@ -1,0 +1,33 @@
+[build-system]
+requires = ["setuptools>=68", "wheel", "Cython>=3.0", "numpy>=1.26"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "plasmaforge"
+version = "0.1.0"
+description = "Physics-inspired plasma globe simulation backend"
+requires-python = ">=3.11"
+
+[tool.pytest.ini_options]
+# Tests live in backend/tests, mirroring the package structure
+# (tests/physics for physics/, tests/simulation for simulation/), so a
+# contributor can find a module's tests without a lookup table.
+testpaths = ["tests"]
+python_files = ["test_*.py"]
+
+[tool.black]
+line-length = 100
+target-version = ["py311"]
+
+[tool.ruff]
+line-length = 100
+# .pyx files are excluded — ruff/black don't understand Cython syntax;
+# Cython files are formatted by hand following the style already present
+# in physics/*.pyx.
+extend-exclude = ["*.pyx", "*.pxd"]
+
+[tool.mypy]
+python_version = "3.11"
+ignore_missing_imports = true
+# physics/ Cython modules are typed via .pyi stubs if/when that becomes
+# worthwhile; not required for a project this size yet.
