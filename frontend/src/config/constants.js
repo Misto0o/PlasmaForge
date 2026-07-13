@@ -12,7 +12,12 @@
 export const GLOBE_RADIUS = 1.0;
 export const ELECTRODE_RADIUS = 0.08;
 
-export const WS_URL = "ws://localhost:8766";
+// WebSocket URL for the simulation server. Reads from a Vite env
+// variable (VITE_WS_URL) so production deploys can point at a real
+// backend host instead of localhost — set this in Netlify's build
+// environment settings once the backend is deployed somewhere (Railway,
+// Render, Fly.io, etc.). Falls back to localhost for local development.
+export const WS_URL = import.meta.env.VITE_WS_URL || "ws://localhost:8766";
 
 export const CAMERA = {
   fov: 45,
