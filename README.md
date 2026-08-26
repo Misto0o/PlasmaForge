@@ -2,6 +2,8 @@
 
 **A real-time plasma globe simulation that runs in your browser.**
 
+🌐 **Live demo:** [plasmaforge.netlify.app](https://plasmaforge.netlify.app)
+
 PlasmaForge uses physics-based calculations to create dynamic lightning that reacts to your cursor.
 
 Built by two people as a side project.
