@@ -1,22 +1,23 @@
 """
 Application entrypoint: `python -m plasmaforge.server.app`
 
-Wires together the FastAPI HTTP app (health/config endpoints), the
-WebSocket state-broadcast server, and one long-lived SimulationEngine
-instance. This is intentionally the only file in the project that starts
-event loops / binds ports — everything it depends on (engine, handlers)
-is plain, testable Python/asyncio with no process-startup side effects
-of its own.
+Single-port design: the WebSocket route lives on the SAME FastAPI app as
+the HTTP endpoints (health/config), both served by one uvicorn process on
+one port. This replaced an earlier two-port design (separate `websockets`
+server on its own port) specifically so this deploys cleanly on
+platforms like Render/Railway that only expose one external port per
+service — see websocket_handler.py's module docstring for the full
+rationale.
 """
 
 from __future__ import annotations
 
 import asyncio
 import logging
+from contextlib import asynccontextmanager
 
 import uvicorn
-import websockets
-from fastapi import FastAPI
+from fastapi import FastAPI, WebSocket
 
 from plasmaforge.config.settings import settings
 from plasmaforge.server.api_routes import router as api_router
@@ -26,37 +27,39 @@ from plasmaforge.simulation.engine import SimulationEngine
 logging.basicConfig(level=settings.log_level)
 logger = logging.getLogger("plasmaforge.server.app")
 
-app = FastAPI(title="PlasmaForge", version="0.1.0")
+_engine = SimulationEngine(mode_name=settings.default_mode)
+bind_engine(_engine)
+
+
+@asynccontextmanager
+async def lifespan(app: FastAPI):
+    """Starts the simulation broadcast loop as a background task when
+    the app starts, and cancels it cleanly on shutdown. This is
+    FastAPI's recommended replacement for the older startup/shutdown
+    event decorators."""
+    task = asyncio.create_task(broadcast_loop(_engine))
+    logger.info("Simulation broadcast loop started")
+    yield
+    task.cancel()
+
+
+app = FastAPI(title="PlasmaForge", version="0.1.0", lifespan=lifespan)
 app.include_router(api_router)
 
 
-async def _run_websocket_server(engine: SimulationEngine) -> None:
-    async with websockets.serve(handle_client, settings.host, settings.port + 1):
-        logger.info("WebSocket server listening on %s:%d", settings.host, settings.port + 1)
-        await broadcast_loop(engine)
-
-
-async def _run_http_server() -> None:
-    config = uvicorn.Config(app, host=settings.host, port=settings.port,
-                             log_level=settings.log_level.lower())
-    server = uvicorn.Server(config)
-    logger.info("HTTP server listening on %s:%d", settings.host, settings.port)
-    await server.serve()
-
-
-async def main() -> None:
-    engine = SimulationEngine(mode_name=settings.default_mode)
-    bind_engine(engine)  # so WebSocket control messages (touch, mode switch) can reach it
-    # HTTP (health/config) and WebSocket (simulation stream) run as two
-    # servers on adjacent ports rather than multiplexed on one, since that
-    # keeps each protocol's library (uvicorn vs websockets) doing what
-    # it's actually good at instead of forcing WS-over-ASGI complexity in
-    # early development. Revisit if deployment wants a single port.
-    await asyncio.gather(
-        _run_http_server(),
-        _run_websocket_server(engine),
-    )
+@app.websocket("/ws")
+async def websocket_endpoint(websocket: WebSocket) -> None:
+    """The single WebSocket route simulation state streams over, and
+    control messages (touch point, mode switch) arrive on. Frontend
+    should connect to wss://your-host/ws in production, ws://localhost:PORT/ws
+    locally — see frontend/src/config/constants.js's WS_URL."""
+    await handle_client(websocket)
 
 
 if __name__ == "__main__":
-    asyncio.run(main())
+    uvicorn.run(
+        app,
+        host=settings.host,
+        port=settings.port,
+        log_level=settings.log_level.lower(),
+    )

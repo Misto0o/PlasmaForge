@@ -19,15 +19,15 @@ VACUUM_PERMITTIVITY = 1.0       # normalized
 
 # --- Globe geometry ------------------------------------------------------
 GLOBE_RADIUS = 1.0              # simulation-space radius of the glass globe
-ELECTRODE_RADIUS = 0.08         # radius of the central electrode sphere
+ELECTRODE_RADIUS = 0.10         # radius of the central electrode sphere
 
 # --- Filament defaults -----------------------------------------------
-DEFAULT_FILAMENT_COUNT = 85
+DEFAULT_FILAMENT_COUNT = 65
 FILAMENT_MIN_LIFETIME_S = 0.03   # Lowered: Rapid, frantic twitching/flicker
-FILAMENT_MAX_LIFETIME_S = 0.5    # Lowered: Arcs cycle out quicker, keeping it dynamic
+FILAMENT_MAX_LIFETIME_S = 0.4    # Lowered: Arcs cycle out quicker, keeping it dynamic
 FILAMENT_BRANCH_PROBABILITY = 0.12
-FILAMENT_PATH_SEGMENTS = 8      # jagged segments per main filament path
-FILAMENT_JITTER = 0.10          # perpendicular displacement scale for jaggedness
+FILAMENT_PATH_SEGMENTS = 15      # jagged segments per main filament path
+FILAMENT_JITTER = 0.12         # perpendicular displacement scale for jaggedness
 
 # --- Particle system defaults ------------------------------------------
 DEFAULT_MAX_PARTICLES = 4000

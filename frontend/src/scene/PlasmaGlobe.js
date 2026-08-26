@@ -33,8 +33,6 @@ class Filament {
     this.lifetime =
       FILAMENT_MIN_LIFETIME + Math.random() * (FILAMENT_MAX_LIFETIME - FILAMENT_MIN_LIFETIME);
     this.target = randomPointOnSphere(GLOBE_RADIUS * 0.95);
-    // A mild random midpoint offset gives the arc a organic bow/branch
-    // shape instead of a perfectly straight line from center to surface.
     this.midOffset = new THREE.Vector3(
       (Math.random() - 0.5) * 0.25,
       (Math.random() - 0.5) * 0.25,
@@ -42,13 +40,10 @@ class Filament {
     );
   }
 
-  /** Returns 0..1 opacity based on lifecycle position — fades in, holds,
-   * flickers out. This is what gives the globe its restless look. */
   get intensity() {
     const t = this.age / this.lifetime;
     if (t < 0.15) return t / 0.15;
     if (t > 0.8) return Math.max(0, 1 - (t - 0.8) / 0.2);
-    // Mid-life flicker: small random jitter around full brightness.
     return 0.85 + Math.random() * 0.15;
   }
 
@@ -66,18 +61,94 @@ class Filament {
   }
 }
 
+/**
+ * Generates a small radial-gradient circle texture at runtime (no image
+ * asset needed) for use as a soft particle sprite. Flat square dots read
+ * as "debug visualization"; a soft glowing dot reads as "plasma motes" —
+ * this is one of the cheapest visual upgrades available in Three.js.
+ */
+function createSoftCircleTexture() {
+  const size = 64;
+  const canvas = document.createElement("canvas");
+  canvas.width = size;
+  canvas.height = size;
+  const ctx = canvas.getContext("2d");
+  const gradient = ctx.createRadialGradient(
+    size / 2, size / 2, 0,
+    size / 2, size / 2, size / 2
+  );
+  gradient.addColorStop(0, "rgba(255,255,255,1)");
+  gradient.addColorStop(0.4, "rgba(255,255,255,0.6)");
+  gradient.addColorStop(1, "rgba(255,255,255,0)");
+  ctx.fillStyle = gradient;
+  ctx.fillRect(0, 0, size, size);
+  const texture = new THREE.CanvasTexture(canvas);
+  texture.needsUpdate = true;
+  return texture;
+}
+
+/**
+ * A dark radial-gradient texture (opposite of createSoftCircleTexture) —
+ * used for the ground shadow ellipse beneath the globe.
+ */
+function createSoftShadowTexture() {
+  const size = 128;
+  const canvas = document.createElement("canvas");
+  canvas.width = size;
+  canvas.height = size;
+  const ctx = canvas.getContext("2d");
+  const gradient = ctx.createRadialGradient(
+    size / 2, size / 2, 0,
+    size / 2, size / 2, size / 2
+  );
+  gradient.addColorStop(0, "rgba(0,0,0,1)");
+  gradient.addColorStop(0.6, "rgba(0,0,0,0.4)");
+  gradient.addColorStop(1, "rgba(0,0,0,0)");
+  ctx.fillStyle = gradient;
+  ctx.fillRect(0, 0, size, size);
+  const texture = new THREE.CanvasTexture(canvas);
+  texture.needsUpdate = true;
+  return texture;
+}
+
 export class PlasmaGlobe {
   constructor() {
     this.group = new THREE.Group();
 
+    this._particleTexture = createSoftCircleTexture();
+
     this._buildGlassShell();
+    this._buildRimGlow();
+    this._buildGroundShadow();
     this._buildElectrode();
+    this._buildElectrodeLight();
     this._buildFilaments();
 
-    // Real backend data target — populated by applySimulationState() once
-    // the WebSocket client is wired up. Until then it stays null and the
-    // globe runs on the procedural placeholder animation.
     this._latestSimState = null;
+  }
+
+  /**
+   * A soft dark ellipse beneath the globe, like a drop shadow on a
+   * surface. This is a classic cheap trick for selling "this is a 3D
+   * object floating in space" — without SOMETHING anchoring it
+   * relative to an implied ground/surface, a sphere reads as a flat
+   * circle far more easily than people expect, especially at a glance
+   * before the eye has parsed the lighting.
+   */
+  _buildGroundShadow() {
+    const geometry = new THREE.PlaneGeometry(GLOBE_RADIUS * 3.2, GLOBE_RADIUS * 3.2);
+    const material = new THREE.MeshBasicMaterial({
+      map: this._shadowTexture || (this._shadowTexture = createSoftShadowTexture()),
+      transparent: true,
+      opacity: 0.55,
+      depthWrite: false,
+      blending: THREE.NormalBlending, // darkens, unlike the additive glow elements
+    });
+    this.groundShadow = new THREE.Mesh(geometry, material);
+    this.groundShadow.rotation.x = -Math.PI / 2; // lay flat, like a floor
+    this.groundShadow.position.y = -GLOBE_RADIUS * 1.4;
+    this.groundShadow.renderOrder = -1; // draw before everything else, it's furthest "back" conceptually
+    this.group.add(this.groundShadow);
   }
 
   _buildGlassShell() {
@@ -99,8 +170,6 @@ export class PlasmaGlobe {
       // mesh containing both its near and far faces, that depth write
       // makes the glass silently occlude everything drawn inside it
       // (filaments, particles), even though you can "see through" it.
-      // This is why filaments were invisible — not a physics bug, a
-      // rendering order bug.
       depthWrite: false,
     });
     this.glassShell = new THREE.Mesh(geometry, material);
@@ -113,25 +182,78 @@ export class PlasmaGlobe {
     this.group.add(this.glassShell);
   }
 
+  /**
+   * A slightly larger, very faint additive sphere just outside the main
+   * glass shell — fakes a Fresnel-style rim glow (the edges of real
+   * glass catch and scatter more light than the center) without the
+   * complexity of a custom shader. Cheap, but reads as "this glass is
+   * energized" rather than "this is a plain transparent sphere."
+   */
+  _buildRimGlow() {
+    const geometry = new THREE.SphereGeometry(GLOBE_RADIUS * 1.03, 48, 48);
+    const material = new THREE.MeshBasicMaterial({
+      color: COLORS.globeGlass,
+      transparent: true,
+      opacity: 0.03,
+      blending: THREE.AdditiveBlending,
+      depthWrite: false,
+      side: THREE.BackSide, // only visible at glancing angles, like a rim light
+    });
+    this.rimGlow = new THREE.Mesh(geometry, material);
+    this.rimGlow.renderOrder = 11;
+    this.group.add(this.rimGlow);
+  }
+
   _buildElectrode() {
     const geometry = new THREE.SphereGeometry(ELECTRODE_RADIUS, 32, 32);
-    const material = new THREE.MeshBasicMaterial({ color: COLORS.electrode });
+    // Emissive intensity kept LOW on purpose this time — a strong
+    // emissive value is a constant color added regardless of surface
+    // angle, which was actively fighting the whole point of switching
+    // off MeshBasicMaterial: it was washing the angle-dependent
+    // light/shadow gradient back out, landing right back at "looks
+    // flat." Lower roughness + a touch of metalness instead produces a
+    // tighter, brighter specular highlight, which reads as "this is a
+    // 3D ball" far more obviously than a subtle diffuse gradient does
+    // at this small a size on screen.
+    const material = new THREE.MeshStandardMaterial({
+      color: COLORS.electrode,
+      emissive: new THREE.Color(COLORS.electrode),
+      emissiveIntensity: 0.3,
+      roughness: 0.15,
+      metalness: 0.3,
+    });
     this.electrode = new THREE.Mesh(geometry, material);
     this.group.add(this.electrode);
 
-    // A soft glow halo around the electrode using an additive-blended
-    // larger sphere — cheap substitute for real bloom post-processing,
-    // which can be layered on later without removing this.
-    const glowGeometry = new THREE.SphereGeometry(ELECTRODE_RADIUS * 2.2, 24, 24);
+    const glowGeometry = new THREE.SphereGeometry(ELECTRODE_RADIUS * 1.6, 24, 24);
     const glowMaterial = new THREE.MeshBasicMaterial({
       color: COLORS.electrode,
       transparent: true,
-      opacity: 0.25,
+      opacity: 0.15,
       blending: THREE.AdditiveBlending,
       depthWrite: false,
     });
     this.electrodeGlow = new THREE.Mesh(glowGeometry, glowMaterial);
     this.group.add(this.electrodeGlow);
+  }
+
+  /**
+   * A real THREE.PointLight at the electrode's position. Previously the
+   * electrode only *looked* bright (MeshBasicMaterial ignores scene
+   * lighting entirely) but never actually illuminated the glass around
+   * it — the glass's specular highlights only ever came from the two
+   * fixed directional lights in lighting.js. A point light here makes
+   * the glass genuinely brighter near the electrode and dimmer at the
+   * far side, which is what actually sells "there's a glowing thing
+   * inside this glass" instead of "there's a sphere with lines on it."
+   */
+  _buildElectrodeLight() {
+    // Intensity/decay tuned down from an earlier pass that was too
+    // strong and washed out the glass — this should read as "a subtle
+    // glow source," not "a flashlight inside the globe."
+    this.electrodeLight = new THREE.PointLight(0xbb99ff, 0.2, GLOBE_RADIUS * 2.5, 1.5);
+    this.electrodeLight.position.set(0, 0, 0);
+    this.group.add(this.electrodeLight);
   }
 
   _buildFilaments() {
@@ -155,6 +277,25 @@ export class PlasmaGlobe {
       this.filamentLines.push(line);
       this.group.add(line);
     }
+
+    // Glowing tip sprites: one soft circular sprite per filament, placed
+    // at the current endpoint. This is what makes each arc look like it
+    // has an actual spark landing on the glass, rather than just a line
+    // that stops.
+    this.filamentTipSprites = this.filaments.map(() => {
+      const material = new THREE.SpriteMaterial({
+        map: this._particleTexture,
+        color: COLORS.filamentCore,
+        transparent: true,
+        opacity: 0.9,
+        blending: THREE.AdditiveBlending,
+        depthWrite: false,
+      });
+      const sprite = new THREE.Sprite(material);
+      sprite.scale.set(0.03, 0.03, 0.03);
+      this.group.add(sprite);
+      return sprite;
+    });
   }
 
   /**
@@ -170,15 +311,23 @@ export class PlasmaGlobe {
   }
 
   /**
-   * Backend filaments arrive as a flat points array where every
-   * consecutive pair [start, end, start, end, ...] is one independent
-   * segment (see SimulationState.to_dict() on the Python side) — this
-   * now includes branch segments that do NOT continue the main chain,
-   * since filament.py generates jagged, occasionally-branching paths.
-   * THREE.LineSegments (not THREE.Line/LineStrip) is the correct
-   * primitive for that: it draws each consecutive pair as its own
-   * disconnected segment instead of chaining every point together,
-   * which would incorrectly connect branch tips back into the main path.
+   * Backend filaments now arrive as { main: [[x,y,z], ...], branches:
+   * [[x,y,z], [x,y,z], ...] } — an ORDERED chain for the main path, and
+   * flat start/end pairs for branch sparks (see SimulationState.to_dict()
+   * and Filament.main_path_points/branch_segment_pairs on the Python
+   * side).
+   *
+   * The main path is rendered as STRAIGHT segments directly through the
+   * backend's jittered points — no spline smoothing. An earlier version
+   * ran these through THREE.CatmullRomCurve3 to fix a "crunchy" look,
+   * but that was the wrong instinct for lightning specifically: a spline
+   * rounds off every sharp corner by design, which is exactly backwards
+   * from what makes something read as electricity. Real lightning
+   * renders (games, film) use straight jagged segments through
+   * midpoint-displaced points — splines are for smooth magic/energy
+   * trails, not bolts. Cranking backend jitter/segment constants can't
+   * fix jaggedness while this smoothing step is still in the pipeline;
+   * removing it is the actual fix, not a bigger jitter value.
    */
   _renderFilamentsFromState(filaments) {
     for (const line of this.filamentLines) {
@@ -188,40 +337,107 @@ export class PlasmaGlobe {
     }
     this.filamentLines = [];
 
+    for (const sprite of this.filamentTipSprites || []) {
+      this.group.remove(sprite);
+    }
+    this.filamentTipSprites = [];
+
     for (const filament of filaments) {
-      const points = filament.map(([x, y, z]) => new THREE.Vector3(x, y, z));
-      if (points.length < 2) continue;
-      const geometry = new THREE.BufferGeometry().setFromPoints(points);
-      const material = new THREE.LineBasicMaterial({
-        color: COLORS.filament,
-        transparent: true,
-        opacity: 0.9,
-        blending: THREE.AdditiveBlending,
-        depthWrite: false,
-      });
-      const line = new THREE.LineSegments(geometry, material);
-      this.filamentLines.push(line);
-      this.group.add(line);
+      const mainPoints = (filament.main || []).map(([x, y, z]) => new THREE.Vector3(x, y, z));
+      const branchPoints = (filament.branches || []).map(([x, y, z]) => new THREE.Vector3(x, y, z));
+
+      if (mainPoints.length >= 2) {
+        const sampled = mainPoints; // straight segments through the raw points, no smoothing
+
+        // Slight per-rebuild opacity flicker adds a subtle crackle —
+        // filaments are rebuilt many times a second anyway, so this is
+        // nearly free.
+        const flicker = 0.8 + Math.random() * 0.2;
+
+        // Length-based brightness fade: brighter near the electrode
+        // (root), dimming toward the glass (tip) — matches how real
+        // plasma streamers actually look, with glow concentrated near
+        // the source rather than uniform along the whole arc. Done via
+        // per-vertex colors rather than a shader: `vertexColors: true`
+        // plus a plain white material color lets each point's color
+        // carry both the hue AND the fade together, computed once here
+        // rather than needing custom material code.
+        const baseColor = new THREE.Color(COLORS.filament);
+        const fadeColors = [];
+        for (let i = 0; i < sampled.length; i++) {
+          const t = sampled.length > 1 ? i / (sampled.length - 1) : 0;
+          const brightness = 1.0 - t * 0.65; // never fades fully to black, just dims
+          fadeColors.push(baseColor.r * brightness, baseColor.g * brightness, baseColor.b * brightness);
+        }
+
+        const coreGeometry = new THREE.BufferGeometry().setFromPoints(sampled);
+        coreGeometry.setAttribute("color", new THREE.Float32BufferAttribute(fadeColors, 3));
+        const coreMaterial = new THREE.LineBasicMaterial({
+          vertexColors: true,
+          transparent: true,
+          opacity: 1.0 * flicker,
+          blending: THREE.AdditiveBlending,
+          depthWrite: false,
+        });
+        const coreLine = new THREE.Line(coreGeometry, coreMaterial);
+        this.filamentLines.push(coreLine);
+        this.group.add(coreLine);
+
+        // Tip sprites shrunk significantly — at high filament counts
+        // (e.g. 85), each one is a soft glowing blob, and 85 of them
+        // was most of what was visually flooding the globe, not the
+        // ambient dust particles as it might look at a glance.
+        const tip = mainPoints[mainPoints.length - 1];
+        const spriteMaterial = new THREE.SpriteMaterial({
+          map: this._particleTexture,
+          color: COLORS.filamentCore,
+          transparent: true,
+          opacity: 0.7,
+          blending: THREE.AdditiveBlending,
+          depthWrite: false,
+        });
+        const sprite = new THREE.Sprite(spriteMaterial);
+        sprite.position.copy(tip);
+        sprite.scale.set(0.022, 0.022, 0.022);
+        this.filamentTipSprites.push(sprite);
+        this.group.add(sprite);
+      }
+
+      if (branchPoints.length >= 2) {
+        const branchGeometry = new THREE.BufferGeometry().setFromPoints(branchPoints);
+        const branchMaterial = new THREE.LineBasicMaterial({
+          color: COLORS.filament,
+          transparent: true,
+          opacity: 0.6, // branches read as secondary/subtler than the main arc
+          blending: THREE.AdditiveBlending,
+          depthWrite: false,
+        });
+        const branchLine = new THREE.LineSegments(branchGeometry, branchMaterial);
+        this.filamentLines.push(branchLine);
+        this.group.add(branchLine);
+      }
     }
   }
 
   /**
-   * Renders backend particles as a single THREE.Points cloud rather than
-   * one Mesh per particle — at particle counts in the thousands (see
-   * config.constants.DEFAULT_MAX_PARTICLES on the backend), individual
-   * meshes would tank frame rate. A shared BufferAttribute updated in
-   * place is the standard Three.js pattern for this.
+   * Renders backend particles as a single THREE.Points cloud using a
+   * soft circular sprite texture (see createSoftCircleTexture) instead
+   * of the default hard-edged square GL point — this is the single
+   * biggest visual upgrade for "does this look like plasma dust or a
+   * debug overlay."
    */
   _renderParticlesFromState(particlePositions) {
     if (!this.particlePoints) {
       const geometry = new THREE.BufferGeometry();
       const material = new THREE.PointsMaterial({
         color: COLORS.filamentCore,
-        size: 0.015,
+        size: 0.015, // was 0.035 — noticeably smaller, cleaner "dust" instead of small moons
+        map: this._particleTexture,
         transparent: true,
-        opacity: 0.8,
+        opacity: 0.6,
         blending: THREE.AdditiveBlending,
         depthWrite: false,
+        sizeAttenuation: true,
       });
       this.particlePoints = new THREE.Points(geometry, material);
       this.group.add(this.particlePoints);
@@ -238,13 +454,8 @@ export class PlasmaGlobe {
 
   update(dt) {
     if (!this._latestSimState) {
-      // No backend data yet (or not connected) — keep the demo alive on
-      // the procedural placeholder.
       this._updatePlaceholderFilaments(dt);
     }
-    // Real filament/particle geometry is pushed in from applySimulationState()
-    // whenever a WebSocket message arrives, not here — this just keeps the
-    // globe visibly alive (rotating) regardless of data source.
     this.group.rotation.y += dt * 0.05;
   }
 
@@ -255,6 +466,13 @@ export class PlasmaGlobe {
       const line = this.filamentLines[i];
       line.geometry.setFromPoints(points);
       line.material.opacity = filament.intensity;
+
+      const tip = points[points.length - 1];
+      const sprite = this.filamentTipSprites[i];
+      if (sprite) {
+        sprite.position.copy(tip);
+        sprite.material.opacity = 0.9 * filament.intensity;
+      }
     });
   }
 }

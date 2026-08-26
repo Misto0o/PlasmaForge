@@ -6,9 +6,6 @@
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
   <title>PlasmaForge</title>
   <style>
-    /* Kept inline rather than a separate stylesheet: this is the entire
-       page-level styling for a full-viewport 3D canvas app — there is no
-       traditional page layout to warrant a CSS file yet. */
     html,
     body {
       margin: 0;
@@ -16,9 +13,6 @@
       width: 100%;
       height: 100%;
       overflow: hidden;
-      /* Subtle radial vignette instead of flat black — gives the scene
-         some depth/atmosphere behind the globe rather than looking like
-         a cutout pasted on pure black. */
       background: radial-gradient(circle at 50% 45%, #0d1220 0%, #05060a 65%, #000000 100%);
       font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
     }
@@ -39,12 +33,60 @@
       user-select: none;
       z-index: 10;
     }
+
+    #help-button {
+      position: fixed;
+      top: 12px;
+      right: 12px;
+      width: 28px;
+      height: 28px;
+      border-radius: 50%;
+      border: 1px solid rgba(200, 210, 255, 0.35);
+      background: rgba(20, 24, 40, 0.55);
+      color: rgba(200, 210, 255, 0.85);
+      font-size: 14px;
+      font-weight: 600;
+      cursor: pointer;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      z-index: 20;
+      transition: background 0.15s ease, border-color 0.15s ease;
+    }
+
+    #help-button:hover {
+      background: rgba(30, 36, 60, 0.8);
+      border-color: rgba(200, 210, 255, 0.6);
+    }
+
+    #help-panel {
+      position: fixed;
+      top: 50px;
+      right: 12px;
+      max-width: 320px;
+      padding: 16px 18px;
+      border-radius: 10px;
+      border: 1px solid rgba(200, 210, 255, 0.25);
+      background: rgba(10, 13, 24, 0.92);
+      color: rgba(220, 226, 255, 0.9);
+      font-size: 13px;
+      line-height: 1.55;
+      white-space: pre-line;
+      z-index: 20;
+      display: none;
+    }
+
+    #help-panel.visible {
+      display: block;
+    }
   </style>
 </head>
 
 <body>
   <div id="app"></div>
   <div id="fps-counter">-- FPS</div>
+  <button id="help-button" aria-label="Help" title="What is this?">?</button>
+  <div id="help-panel"></div>
   <script type="module" src="/src/main.js"></script>
 </body>
 

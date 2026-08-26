@@ -1,14 +1,6 @@
 """
 SimulationState: a lightweight, serialization-friendly snapshot of "what
-the frontend needs to render right now". This is deliberately decoupled
-from the engine's internal representation (numpy arrays, Filament objects
-with dataclass segments) — the engine's internals are optimized for
-computation, this is optimized for "cheap to turn into JSON and send over
-a WebSocket 60 times a second".
-
-Keeping this separate means the engine's internal data structures can
-change (e.g. switching particle storage to a different layout for GPU
-compatibility) without touching the wire format, and vice versa.
+the frontend needs to render right now".
 """
 
 from __future__ import annotations
@@ -18,7 +10,14 @@ from dataclasses import dataclass, field
 
 @dataclass
 class FilamentSnapshot:
-    points: list[tuple[float, float, float]]
+    # Ordered chain of points for the main path — the frontend spline-
+    # smooths this into a wavy curve, which is why it needs to stay an
+    # ORDERED chain rather than flat unordered pairs.
+    main_points: list[tuple[float, float, float]]
+    # Flat [start, end, start, end, ...] pairs for branch sparks, kept
+    # separate and unsmoothed since they're meant to look like abrupt
+    # little offshoots, not part of the main wavy arc.
+    branch_points: list[tuple[float, float, float]]
 
 
 @dataclass
@@ -30,14 +29,12 @@ class SimulationState:
     filaments: list[FilamentSnapshot] = field(default_factory=list)
 
     def to_dict(self) -> dict:
-        """Plain-dict form for JSON serialization in the WebSocket handler.
-        Kept as an explicit method (rather than relying on dataclasses.asdict
-        everywhere) so the wire format can diverge intentionally from the
-        Python structure later (e.g. flattening arrays for binary transport)."""
         return {
             "tick": self.tick,
             "sim_time_s": self.sim_time_s,
             "mode": self.mode,
             "particles": self.particle_positions,
-            "filaments": [f.points for f in self.filaments],
+            "filaments": [
+                {"main": f.main_points, "branches": f.branch_points} for f in self.filaments
+            ],
         }

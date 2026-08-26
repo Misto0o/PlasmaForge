@@ -1,9 +1,11 @@
 # Runtime dependencies only. Build-time-only deps (Cython, setuptools)
-# live in requirements-dev.txt / pyproject.toml's build-system table —
-# a deployed server doesn't need the Cython compiler installed, only the
-# already-built .so files.
+# live in requirements-dev.txt / pyproject.toml's build-system table.
 
 numpy>=1.26,<2.0
 fastapi>=0.110
 uvicorn[standard]>=0.29
-websockets>=12.0
+# NOTE: the standalone `websockets` package is no longer a direct
+# dependency — WebSocket support now comes from FastAPI/Starlette
+# directly (single-port design, see server/app.py). uvicorn[standard]
+# still pulls in `websockets` transitively as its WS protocol
+# implementation, so nothing extra needs installing.

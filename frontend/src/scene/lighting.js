@@ -9,18 +9,25 @@ import * as THREE from "three";
 import { COLORS } from "../config/constants.js";
 
 export function setupLighting(scene) {
-  const ambient = new THREE.AmbientLight(COLORS.ambientLight, 0.6);
+  // Restored back up — these were dimmed in an earlier pass on the
+  // assumption an environment map would supply extra fill light, but
+  // that environment map was later removed entirely (it caused a
+  // different problem, blotchy blue reflections). Left dim afterward,
+  // this scene had no meaningful light on it at all, which is why the
+  // glass wasn't showing any shading/gradient — there was nothing to
+  // shade it with.
+  const ambient = new THREE.AmbientLight(COLORS.ambientLight, 0.5);
   scene.add(ambient);
 
   // A cool rim light from above-behind, to catch the edge of the glass
   // sphere without washing out the plasma glow inside it.
-  const rim = new THREE.DirectionalLight(0x6688ff, 0.8);
+  const rim = new THREE.DirectionalLight(0x6688ff, 0.75);
   rim.position.set(-2, 3, -2);
   scene.add(rim);
 
   // A warm fill from the front so the glass surface reads as glass
   // rather than a flat silhouette.
-  const fill = new THREE.DirectionalLight(0xffddaa, 0.3);
+  const fill = new THREE.DirectionalLight(0xffddaa, 0.35);
   fill.position.set(2, 1, 3);
   scene.add(fill);
 

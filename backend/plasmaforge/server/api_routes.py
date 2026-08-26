@@ -1,9 +1,5 @@
 """
-HTTP API routes: currently just a health check and a couple of read-only
-config endpoints. This exists as a separate file from app.py so route
-definitions don't clutter the app bootstrap/wiring code, and so this can
-grow (e.g. REST endpoints for recorded sessions) without app.py growing
-with it.
+HTTP API routes: health check and read-only config info.
 """
 
 from __future__ import annotations
@@ -23,8 +19,6 @@ async def health() -> dict:
 
 @router.get("/config")
 async def get_config() -> dict:
-    """Read-only view of non-sensitive runtime settings, useful for the
-    frontend to confirm what mode/backend it's talking to on connect."""
     return {
         "default_mode": settings.default_mode,
         "physics_backend": settings.physics_backend,

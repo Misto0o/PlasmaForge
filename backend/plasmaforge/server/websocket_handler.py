@@ -1,13 +1,17 @@
 """
 WebSocket handler: streams SimulationState snapshots to connected browser
 clients at settings.state_broadcast_hz, and receives control messages
-(mode switches, reset, etc.) from clients.
+(mode switches, touch point, etc.) from clients.
 
-Uses the `websockets` library directly rather than a full framework,
-since the server's job is narrow (stream state, accept a few control
-commands) — see requirements.txt for why FastAPI is used for HTTP
-endpoints instead, keeping the two concerns on separate, well-understood
-libraries rather than forcing everything through one.
+Rewritten to use FastAPI/Starlette's BUILT-IN WebSocket support (a route
+on the same app as the HTTP endpoints) instead of a standalone
+`websockets.serve()` server on its own port. Why this matters: most
+simple deployment platforms (Render, Railway, and similar) only expose
+ONE external port per service. Binding HTTP and WebSocket to two
+separate ports works fine locally but makes the WebSocket half
+unreachable once deployed to one of those platforms — this rewrite
+avoids that entirely by putting everything behind the single port
+uvicorn already serves.
 """
 
 from __future__ import annotations
@@ -16,19 +20,18 @@ import asyncio
 import json
 import logging
 
-import websockets
+from fastapi import WebSocket, WebSocketDisconnect
 
 from plasmaforge.config.settings import settings
 from plasmaforge.simulation.engine import SimulationEngine
 
 logger = logging.getLogger("plasmaforge.server.websocket")
 
-_CONNECTED_CLIENTS: set[websockets.WebSocketServerProtocol] = set()
+_CONNECTED_CLIENTS: set[WebSocket] = set()
 
 # Set once at server startup (see server/app.py). Kept as module state
 # rather than threaded through every function call because there is
-# exactly one engine per server process — see docs/architecture.md's note
-# that server/ owns a single long-lived engine.
+# exactly one engine per server process.
 _engine: SimulationEngine | None = None
 
 
@@ -39,15 +42,18 @@ def bind_engine(engine: SimulationEngine) -> None:
     _engine = engine
 
 
-async def handle_client(websocket: websockets.WebSocketServerProtocol) -> None:
-    """Registers a client for broadcast and listens for control messages
-    (e.g. {"type": "set_mode", "mode": "storm"}) until it disconnects."""
+async def handle_client(websocket: WebSocket) -> None:
+    """Accepts one client connection, registers it for broadcast, and
+    listens for control messages (e.g. {"type": "set_touch", ...}) until
+    it disconnects."""
+    await websocket.accept()
     _CONNECTED_CLIENTS.add(websocket)
     logger.info("Client connected (%d total)", len(_CONNECTED_CLIENTS))
     try:
-        async for raw_message in websocket:
+        while True:
+            raw_message = await websocket.receive_text()
             await _handle_control_message(raw_message)
-    except websockets.ConnectionClosed:
+    except WebSocketDisconnect:
         pass
     finally:
         _CONNECTED_CLIENTS.discard(websocket)
@@ -89,15 +95,19 @@ async def _handle_control_message(raw_message: str) -> None:
 
 async def broadcast_loop(engine: SimulationEngine) -> None:
     """Steps the simulation and broadcasts state to all connected clients
-    at a fixed rate, forever. Runs as one of the server's background
-    tasks — see app.py."""
+    at a fixed rate, forever. Runs as a background asyncio task started
+    at app startup — see server/app.py."""
     interval = 1.0 / settings.state_broadcast_hz
     while True:
         state = engine.advance(interval)
         if _CONNECTED_CLIENTS:
             payload = json.dumps(state.to_dict())
+            # send_text can raise if a client disconnected between the
+            # `if _CONNECTED_CLIENTS` check and now — gather with
+            # return_exceptions so one dead connection doesn't crash the
+            # whole broadcast loop for everyone else.
             await asyncio.gather(
-                *(client.send(payload) for client in list(_CONNECTED_CLIENTS)),
+                *(client.send_text(payload) for client in list(_CONNECTED_CLIENTS)),
                 return_exceptions=True,
             )
         await asyncio.sleep(interval)

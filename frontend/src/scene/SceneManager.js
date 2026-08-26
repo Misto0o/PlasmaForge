@@ -9,6 +9,9 @@
 
 import * as THREE from "three";
 import { OrbitControls } from "three/addons/controls/OrbitControls.js";
+import { EffectComposer } from "three/addons/postprocessing/EffectComposer.js";
+import { RenderPass } from "three/addons/postprocessing/RenderPass.js";
+import { UnrealBloomPass } from "three/addons/postprocessing/UnrealBloomPass.js";
 import { CAMERA } from "../config/constants.js";
 import { setupLighting } from "./lighting.js";
 
@@ -21,6 +24,13 @@ export class SceneManager {
     // CSS radial-gradient vignette (see index.html) shows through the
     // canvas instead of being painted over by a flat fill — requires
     // the renderer's alpha:true below to actually be transparent.
+    //
+    // NOTE: this scene deliberately has NO environment map. An earlier
+    // pass added one (via RoomEnvironment + PMREMGenerator) to give the
+    // glass material reflections, but the reflected "room" produced
+    // distracting blue/white blotches on the glass instead of reading
+    // as clear glass — removed in favor of keeping the glass simple and
+    // actually transparent-looking.
 
     this.camera = new THREE.PerspectiveCamera(
       CAMERA.fov,
@@ -48,6 +58,27 @@ export class SceneManager {
     this.controls.maxDistance = 8;
     this.controls.enablePan = false; // panning a single centered object adds confusion, not value
 
+    // --- Bloom post-processing -----------------------------------------
+    // This is the WebGL equivalent of a CSS glow/box-shadow: bright,
+    // additive-blended things (the filaments, the electrode, the particle
+    // sprites) genuinely bleed light into their surroundings instead of
+    // just being bright pixels with hard edges. threshold controls how
+    // bright something needs to be before it blooms at all — tuned so
+    // the dim glass shell and background do NOT glow, only the actual
+    // plasma content does.
+    this.composer = new EffectComposer(this.renderer);
+    this.composer.addPass(new RenderPass(this.scene, this.camera));
+    this.bloomPass = new UnrealBloomPass(
+      new THREE.Vector2(container.clientWidth, container.clientHeight),
+      0.14,  // strength — small nudge up from 0.08, now that the more
+      // saturated purple holds its color under bloom instead of
+      // washing toward white
+      0.28,  // radius
+      0.68   // threshold — still only the brightest points (electrode,
+      // tip sparks) bloom, not the whole glass or ambient dust
+    );
+    this.composer.addPass(this.bloomPass);
+
     this._resizeHandler = this._onResize.bind(this);
     window.addEventListener("resize", this._resizeHandler);
 
@@ -71,7 +102,7 @@ export class SceneManager {
       const dt = this._clock.getDelta();
       this.controls.update(); // required every frame when damping is enabled
       for (const cb of this._updateCallbacks) cb(dt);
-      this.renderer.render(this.scene, this.camera);
+      this.composer.render();
     });
   }
 
@@ -80,6 +111,7 @@ export class SceneManager {
     this.camera.aspect = clientWidth / clientHeight;
     this.camera.updateProjectionMatrix();
     this.renderer.setSize(clientWidth, clientHeight);
+    this.composer.setSize(clientWidth, clientHeight);
   }
 
   dispose() {
