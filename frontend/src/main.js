@@ -2,7 +2,7 @@ import * as THREE from "three";
 import { SceneManager } from "./scene/SceneManager.js";
 import { PlasmaGlobe } from "./scene/PlasmaGlobe.js";
 import { SimulationClient } from "./network/SimulationClient.js";
-import { FPSCounter } from "./utils/fpsCounter.js";
+import { FPSCounter } from "./utils/fpscounter.js";
 import { setupHelpPanel } from "./utils/helpPanel.js";
 
 const container = document.getElementById("app");
