@@ -7,6 +7,22 @@ from __future__ import annotations
 
 from dataclasses import dataclass, field
 
+# The simulation runs in a normalized unit sphere of radius ~1.0 (see
+# backend/plasmaforge/config/constants.py's GLOBE_RADIUS). At that
+# scale, 3 decimal places of precision (millimeter-equivalent detail)
+# is already far beyond what's visually distinguishable on screen — but
+# a raw Python float serializes to JSON with up to ~17 significant
+# digits by default. Rounding before sending cuts the bytes-per-number
+# roughly in half with zero visible difference, which matters a lot
+# when this gets sent for every point of every filament, many times a
+# second, to every connected browser — see settings.py's
+# state_broadcast_hz comment for the other half of this bandwidth fix.
+_COORD_PRECISION = 3
+
+
+def _round_point(point: tuple[float, float, float]) -> list[float]:
+    return [round(c, _COORD_PRECISION) for c in point]
+
 
 @dataclass
 class FilamentSnapshot:
@@ -31,10 +47,14 @@ class SimulationState:
     def to_dict(self) -> dict:
         return {
             "tick": self.tick,
-            "sim_time_s": self.sim_time_s,
+            "sim_time_s": round(self.sim_time_s, _COORD_PRECISION),
             "mode": self.mode,
-            "particles": self.particle_positions,
+            "particles": [_round_point(p) for p in self.particle_positions],
             "filaments": [
-                {"main": f.main_points, "branches": f.branch_points} for f in self.filaments
+                {
+                    "main": [_round_point(p) for p in f.main_points],
+                    "branches": [_round_point(p) for p in f.branch_points],
+                }
+                for f in self.filaments
             ],
         }
